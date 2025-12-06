@@ -1,0 +1,635 @@
+/**
+ * Secure Todo App - Frontend JavaScript
+ * Plain JavaScript (no frameworks) - ISS Requirements
+ * 
+ * Security Features:
+ * - XSS Prevention: Using textContent instead of innerHTML
+ * - CSRF Protection: HttpOnly cookies
+ * - Input Sanitization on client side
+ * - Secure token storage options (cookies preferred)
+ */
+
+// API Configuration
+const API_URL = window.location.origin + '/api';
+
+// State Management
+let currentUser = null;
+let todos = [];
+let currentFilter = 'all';
+let editingTodoId = null;
+
+// Initialize App
+document.addEventListener('DOMContentLoaded', () => {
+  // Check for OAuth callback tokens in URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const authToken = urlParams.get('authToken');
+  const refreshToken = urlParams.get('refreshToken');
+  
+  if (authToken && refreshToken) {
+    // Store tokens from OAuth callback
+    localStorage.setItem('authToken', authToken);
+    localStorage.setItem('refreshToken', refreshToken);
+    // Clean URL
+    window.history.replaceState({}, document.title, window.location.pathname);
+    checkAuth();
+  } else {
+    checkAuth();
+  }
+
+  initializeEventListeners();
+});
+
+/**
+ * Initialize all event listeners
+ */
+function initializeEventListeners() {
+  // Auth form listeners
+  document.getElementById('loginFormElement').addEventListener('submit', handleLogin);
+  document.getElementById('signupFormElement').addEventListener('submit', handleSignup);
+  document.getElementById('showSignup').addEventListener('click', showSignupForm);
+  document.getElementById('showLogin').addEventListener('click', showLoginForm);
+  document.getElementById('googleLoginBtn').addEventListener('click', handleGoogleAuth);
+  document.getElementById('googleSignupBtn').addEventListener('click', handleGoogleAuth);
+  
+  // Todo form listeners
+  document.getElementById('addTodoForm').addEventListener('submit', handleAddTodo);
+  document.getElementById('editTodoForm').addEventListener('submit', handleEditTodo);
+  document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+  document.getElementById('closeModal').addEventListener('click', closeEditModal);
+  document.getElementById('cancelEdit').addEventListener('click', closeEditModal);
+  
+  // Filter listeners
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentFilter = btn.dataset.filter;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderTodos();
+    });
+  });
+
+  // Close modal on outside click
+  document.getElementById('editModal').addEventListener('click', (e) => {
+    if (e.target.id === 'editModal') {
+      closeEditModal();
+    }
+  });
+}
+
+/**
+ * Check authentication status
+ */
+async function checkAuth() {
+  try {
+    const response = await fetch(`${API_URL}/auth/me`, {
+      credentials: 'include',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('authToken') || ''}`
+      }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      currentUser = data.user;
+      showTodoApp();
+      loadTodos();
+    } else {
+      showAuthPage();
+    }
+  } catch (error) {
+    console.error('Auth check failed:', error);
+    showAuthPage();
+  }
+}
+
+/**
+ * Handle login form submission
+ */
+async function handleLogin(e) {
+  e.preventDefault();
+  
+  const email = document.getElementById('loginEmail').value;
+  const password = document.getElementById('loginPassword').value;
+
+  try {
+    const response = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({ email, password })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      // Store tokens (cookies are preferred, but also store for fallback)
+      localStorage.setItem('authToken', data.authToken);
+      localStorage.setItem('refreshToken', data.refreshToken);
+      currentUser = data.user;
+      showToast('Login successful!', 'success');
+      showTodoApp();
+      loadTodos();
+    } else {
+      showToast(data.message || 'Login failed', 'error');
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    showToast('Login failed. Please try again.', 'error');
+  }
+}
+
+/**
+ * Handle signup form submission
+ */
+async function handleSignup(e) {
+  e.preventDefault();
+  
+  const name = document.getElementById('signupName').value;
+  const email = document.getElementById('signupEmail').value;
+  const password = document.getElementById('signupPassword').value;
+
+  // Client-side password validation
+  if (password.length < 8) {
+    showToast('Password must be at least 8 characters', 'error');
+    return;
+  }
+  if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
+    showToast('Password must contain uppercase, lowercase, and number', 'error');
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({ name, email, password })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      localStorage.setItem('authToken', data.authToken);
+      localStorage.setItem('refreshToken', data.refreshToken);
+      currentUser = data.user;
+      showToast('Account created successfully!', 'success');
+      showTodoApp();
+      loadTodos();
+    } else {
+      showToast(data.message || 'Signup failed', 'error');
+    }
+  } catch (error) {
+    console.error('Signup error:', error);
+    showToast('Signup failed. Please try again.', 'error');
+  }
+}
+
+/**
+ * Handle Google OAuth authentication
+ */
+function handleGoogleAuth() {
+  // Redirect to Google OAuth endpoint
+  window.location.href = `${API_URL}/auth/google`;
+}
+
+/**
+ * Handle logout
+ */
+async function handleLogout() {
+  try {
+    await fetch(`${API_URL}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('authToken') || ''}`
+      }
+    });
+  } catch (error) {
+    console.error('Logout error:', error);
+  }
+
+  // Clear local storage
+  localStorage.removeItem('authToken');
+  localStorage.removeItem('refreshToken');
+  currentUser = null;
+  todos = [];
+  showToast('Logged out successfully', 'success');
+  showAuthPage();
+}
+
+/**
+ * Load todos from API
+ */
+async function loadTodos() {
+  try {
+    const response = await fetch(`${API_URL}/todos`, {
+      credentials: 'include',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('authToken') || ''}`
+      }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      todos = data.todos;
+      renderTodos();
+    } else if (response.status === 401) {
+      // Token expired, try to refresh
+      await refreshAuthToken();
+      loadTodos();
+    } else {
+      showToast('Failed to load todos', 'error');
+    }
+  } catch (error) {
+    console.error('Load todos error:', error);
+    showToast('Failed to load todos', 'error');
+  }
+}
+
+/**
+ * Handle add todo form submission
+ */
+async function handleAddTodo(e) {
+  e.preventDefault();
+  
+  const title = document.getElementById('todoTitle').value.trim();
+  const description = document.getElementById('todoDescription').value.trim();
+
+  if (!title || !description) {
+    showToast('Please fill in all fields', 'warning');
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/todos`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('authToken') || ''}`
+      },
+      credentials: 'include',
+      body: JSON.stringify({ title, description })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      todos.unshift(data.todo);
+      renderTodos();
+      document.getElementById('addTodoForm').reset();
+      showToast('Todo added successfully!', 'success');
+    } else {
+      showToast(data.message || 'Failed to add todo', 'error');
+    }
+  } catch (error) {
+    console.error('Add todo error:', error);
+    showToast('Failed to add todo', 'error');
+  }
+}
+
+/**
+ * Handle edit todo form submission
+ */
+async function handleEditTodo(e) {
+  e.preventDefault();
+  
+  if (!editingTodoId) return;
+
+  const title = document.getElementById('editTodoTitle').value.trim();
+  const description = document.getElementById('editTodoDescription').value.trim();
+  const completed = document.getElementById('editTodoCompleted').checked;
+
+  try {
+    const response = await fetch(`${API_URL}/todos/${editingTodoId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('authToken') || ''}`
+      },
+      credentials: 'include',
+      body: JSON.stringify({ title, description, completed })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      const index = todos.findIndex(t => t.id === editingTodoId);
+      if (index !== -1) {
+        todos[index] = data.todo;
+      }
+      renderTodos();
+      closeEditModal();
+      showToast('Todo updated successfully!', 'success');
+    } else {
+      showToast(data.message || 'Failed to update todo', 'error');
+    }
+  } catch (error) {
+    console.error('Update todo error:', error);
+    showToast('Failed to update todo', 'error');
+  }
+}
+
+/**
+ * Open edit modal for a todo
+ */
+function openEditModal(todoId) {
+  const todo = todos.find(t => t.id === todoId);
+  if (!todo) return;
+
+  editingTodoId = todoId;
+  document.getElementById('editTodoTitle').value = todo.title;
+  document.getElementById('editTodoDescription').value = todo.description;
+  document.getElementById('editTodoCompleted').checked = todo.completed;
+  document.getElementById('editModal').style.display = 'flex';
+}
+
+/**
+ * Close edit modal
+ */
+function closeEditModal() {
+  editingTodoId = null;
+  document.getElementById('editModal').style.display = 'none';
+  document.getElementById('editTodoForm').reset();
+}
+
+/**
+ * Toggle todo completion status
+ */
+async function toggleTodo(todoId) {
+  try {
+    const response = await fetch(`${API_URL}/todos/${todoId}/toggle`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('authToken') || ''}`
+      },
+      credentials: 'include'
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const todo = todos.find(t => t.id === todoId);
+      if (todo) {
+        todo.completed = data.completed;
+        renderTodos();
+      }
+    } else {
+      showToast('Failed to update todo', 'error');
+    }
+  } catch (error) {
+    console.error('Toggle todo error:', error);
+    showToast('Failed to update todo', 'error');
+  }
+}
+
+/**
+ * Delete a todo
+ */
+async function deleteTodo(todoId) {
+  if (!confirm('Are you sure you want to delete this todo?')) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/todos/${todoId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('authToken') || ''}`
+      },
+      credentials: 'include'
+    });
+
+    if (response.ok) {
+      todos = todos.filter(t => t.id !== todoId);
+      renderTodos();
+      showToast('Todo deleted successfully', 'success');
+    } else {
+      showToast('Failed to delete todo', 'error');
+    }
+  } catch (error) {
+    console.error('Delete todo error:', error);
+    showToast('Failed to delete todo', 'error');
+  }
+}
+
+/**
+ * Render todos based on current filter
+ */
+function renderTodos() {
+  const todoList = document.getElementById('todoList');
+  const emptyState = document.getElementById('emptyState');
+
+  // Filter todos
+  let filteredTodos = todos;
+  if (currentFilter === 'active') {
+    filteredTodos = todos.filter(t => !t.completed);
+  } else if (currentFilter === 'completed') {
+    filteredTodos = todos.filter(t => t.completed);
+  }
+
+  // Show empty state if no todos
+  if (filteredTodos.length === 0) {
+    todoList.innerHTML = '';
+    emptyState.style.display = 'block';
+    return;
+  }
+
+  emptyState.style.display = 'none';
+
+  // Render todo items using textContent to prevent XSS
+  todoList.innerHTML = '';
+
+  filteredTodos.forEach(todo => {
+    const div = document.createElement('div');
+    div.className = `todo-item ${todo.completed ? 'completed' : ''} ${!todo.integrityValid ? 'integrity-failed' : ''}`;
+    
+    // Create structure safely using DOM methods
+    const header = document.createElement('div');
+    header.className = 'todo-header';
+    
+    const titleSection = document.createElement('div');
+    titleSection.className = 'todo-title-section';
+    
+    const title = document.createElement('div');
+    title.className = 'todo-title';
+    title.textContent = todo.title; // XSS Prevention: using textContent
+    
+    const meta = document.createElement('div');
+    meta.className = 'todo-meta';
+    
+    const createdSpan = document.createElement('span');
+    createdSpan.textContent = `Created: ${new Date(todo.createdAt).toLocaleDateString()}`;
+    
+    meta.appendChild(createdSpan);
+    
+    if (todo.updatedAt !== todo.createdAt) {
+      const updatedSpan = document.createElement('span');
+      updatedSpan.textContent = `Updated: ${new Date(todo.updatedAt).toLocaleDateString()}`;
+      meta.appendChild(updatedSpan);
+    }
+    
+    titleSection.appendChild(title);
+    titleSection.appendChild(meta);
+    
+    const actions = document.createElement('div');
+    actions.className = 'todo-actions';
+    
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'icon-btn';
+    toggleBtn.textContent = todo.completed ? '↩️' : '✅';
+    toggleBtn.title = todo.completed ? 'Mark as incomplete' : 'Mark as complete';
+    toggleBtn.onclick = () => toggleTodo(todo.id);
+    
+    const editBtn = document.createElement('button');
+    editBtn.className = 'icon-btn';
+    editBtn.textContent = '✏️';
+    editBtn.title = 'Edit';
+    editBtn.onclick = () => openEditModal(todo.id);
+    
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'icon-btn';
+    deleteBtn.textContent = '🗑️';
+    deleteBtn.title = 'Delete';
+    deleteBtn.onclick = () => deleteTodo(todo.id);
+    
+    actions.appendChild(toggleBtn);
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+    
+    header.appendChild(titleSection);
+    header.appendChild(actions);
+    
+    const description = document.createElement('div');
+    description.className = 'todo-description';
+    description.textContent = todo.description; // XSS Prevention: using textContent
+    
+    div.appendChild(header);
+    div.appendChild(description);
+    
+    // Add integrity warning if failed
+    if (!todo.integrityValid) {
+      const warning = document.createElement('div');
+      warning.className = 'integrity-warning';
+      
+      const icon = document.createElement('span');
+      icon.textContent = '⚠️';
+      
+      const text = document.createElement('span');
+      text.textContent = 'Integrity check failed - data may have been tampered with';
+      
+      warning.appendChild(icon);
+      warning.appendChild(text);
+      div.appendChild(warning);
+    }
+    
+    todoList.appendChild(div);
+  });
+}
+
+/**
+ * Refresh authentication token
+ */
+async function refreshAuthToken() {
+  try {
+    const response = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        refreshToken: localStorage.getItem('refreshToken')
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      localStorage.setItem('authToken', data.authToken);
+      return true;
+    } else {
+      // Refresh failed, logout
+      handleLogout();
+      return false;
+    }
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    handleLogout();
+    return false;
+  }
+}
+
+/**
+ * Show authentication page
+ */
+function showAuthPage() {
+  document.getElementById('authContainer').style.display = 'flex';
+  document.getElementById('todoContainer').style.display = 'none';
+}
+
+/**
+ * Show todo application
+ */
+function showTodoApp() {
+  document.getElementById('authContainer').style.display = 'none';
+  document.getElementById('todoContainer').style.display = 'block';
+  
+  // Update user info using textContent for XSS prevention
+  const userName = document.getElementById('userName');
+  userName.textContent = currentUser.name;
+  
+  const userAvatar = document.getElementById('userAvatar');
+  if (currentUser.picture) {
+    userAvatar.src = currentUser.picture;
+    userAvatar.alt = currentUser.name;
+    userAvatar.style.display = 'block';
+  }
+}
+
+/**
+ * Show signup form
+ */
+function showSignupForm(e) {
+  e.preventDefault();
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('signupForm').style.display = 'block';
+}
+
+/**
+ * Show login form
+ */
+function showLoginForm(e) {
+  e.preventDefault();
+  document.getElementById('signupForm').style.display = 'none';
+  document.getElementById('loginForm').style.display = 'block';
+}
+
+/**
+ * Show toast notification
+ */
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  
+  const icon = document.createElement('span');
+  icon.textContent = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
+  
+  const text = document.createElement('span');
+  text.textContent = message; // XSS Prevention: using textContent
+  
+  toast.appendChild(icon);
+  toast.appendChild(text);
+  container.appendChild(toast);
+  
+  // Remove after 3 seconds
+  setTimeout(() => {
+    toast.style.animation = 'slideIn 0.3s ease reverse';
+    setTimeout(() => {
+      container.removeChild(toast);
+    }, 300);
+  }, 3000);
+}
