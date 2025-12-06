@@ -26,9 +26,9 @@ async function authenticate(req, res, next) {
 
     if (!token) {
       logger.logAuthFailure('unknown', 'No token provided', req.ip);
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Authentication required - no token provided' 
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required - no token provided'
       });
     }
 
@@ -37,12 +37,12 @@ async function authenticate(req, res, next) {
 
     // Find user
     const user = await User.findById(decoded.userId);
-    
+
     if (!user) {
       logger.logAuthFailure(decoded.email, 'User not found', req.ip);
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Authentication failed - user not found' 
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication failed - user not found'
       });
     }
 
@@ -53,22 +53,23 @@ async function authenticate(req, res, next) {
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError') {
-      logger.logAuthFailure('unknown', 'Invalid token', req.ip);
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid authentication token' 
+      logger.error('Auth Failure: Invalid Token', { error: error.message, stack: error.stack });
+      logger.logAuthFailure('unknown', `Invalid token: ${error.message}`, req.ip);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid authentication token'
       });
     } else if (error.name === 'TokenExpiredError') {
       logger.logAuthFailure('unknown', 'Token expired', req.ip);
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Authentication token expired' 
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication token expired'
       });
     } else {
       logger.error('Authentication error', { error: error.message });
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Authentication error' 
+      return res.status(500).json({
+        success: false,
+        message: 'Authentication error'
       });
     }
   }

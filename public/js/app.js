@@ -24,8 +24,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const urlParams = new URLSearchParams(window.location.search);
   const authToken = urlParams.get('authToken');
   const refreshToken = urlParams.get('refreshToken');
-  
+
+  console.log('🔗 Current URL:', window.location.href);
+  console.log('🔑 Tokens in URL:', {
+    hasAuth: !!authToken,
+    hasRefresh: !!refreshToken
+  });
+
   if (authToken && refreshToken) {
+    console.log('💾 Storing tokens from URL');
     // Store tokens from OAuth callback
     localStorage.setItem('authToken', authToken);
     localStorage.setItem('refreshToken', refreshToken);
@@ -50,14 +57,14 @@ function initializeEventListeners() {
   document.getElementById('showLogin').addEventListener('click', showLoginForm);
   document.getElementById('googleLoginBtn').addEventListener('click', handleGoogleAuth);
   document.getElementById('googleSignupBtn').addEventListener('click', handleGoogleAuth);
-  
+
   // Todo form listeners
   document.getElementById('addTodoForm').addEventListener('submit', handleAddTodo);
   document.getElementById('editTodoForm').addEventListener('submit', handleEditTodo);
   document.getElementById('logoutBtn').addEventListener('click', handleLogout);
   document.getElementById('closeModal').addEventListener('click', closeEditModal);
   document.getElementById('cancelEdit').addEventListener('click', closeEditModal);
-  
+
   // Filter listeners
   document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -81,10 +88,12 @@ function initializeEventListeners() {
  */
 async function checkAuth() {
   try {
+    const token = localStorage.getItem('authToken');
+
     const response = await fetch(`${API_URL}/auth/me`, {
       credentials: 'include',
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('authToken') || ''}`
+        'Authorization': `Bearer ${token || ''}`
       }
     });
 
@@ -107,7 +116,7 @@ async function checkAuth() {
  */
 async function handleLogin(e) {
   e.preventDefault();
-  
+
   const email = document.getElementById('loginEmail').value;
   const password = document.getElementById('loginPassword').value;
 
@@ -145,7 +154,7 @@ async function handleLogin(e) {
  */
 async function handleSignup(e) {
   e.preventDefault();
-  
+
   const name = document.getElementById('signupName').value;
   const email = document.getElementById('signupEmail').value;
   const password = document.getElementById('signupPassword').value;
@@ -255,7 +264,7 @@ async function loadTodos() {
  */
 async function handleAddTodo(e) {
   e.preventDefault();
-  
+
   const title = document.getElementById('todoTitle').value.trim();
   const description = document.getElementById('todoDescription').value.trim();
 
@@ -296,7 +305,7 @@ async function handleAddTodo(e) {
  */
 async function handleEditTodo(e) {
   e.preventDefault();
-  
+
   if (!editingTodoId) return;
 
   const title = document.getElementById('editTodoTitle').value.trim();
@@ -445,86 +454,86 @@ function renderTodos() {
   filteredTodos.forEach(todo => {
     const div = document.createElement('div');
     div.className = `todo-item ${todo.completed ? 'completed' : ''} ${!todo.integrityValid ? 'integrity-failed' : ''}`;
-    
+
     // Create structure safely using DOM methods
     const header = document.createElement('div');
     header.className = 'todo-header';
-    
+
     const titleSection = document.createElement('div');
     titleSection.className = 'todo-title-section';
-    
+
     const title = document.createElement('div');
     title.className = 'todo-title';
     title.textContent = todo.title; // XSS Prevention: using textContent
-    
+
     const meta = document.createElement('div');
     meta.className = 'todo-meta';
-    
+
     const createdSpan = document.createElement('span');
     createdSpan.textContent = `Created: ${new Date(todo.createdAt).toLocaleDateString()}`;
-    
+
     meta.appendChild(createdSpan);
-    
+
     if (todo.updatedAt !== todo.createdAt) {
       const updatedSpan = document.createElement('span');
       updatedSpan.textContent = `Updated: ${new Date(todo.updatedAt).toLocaleDateString()}`;
       meta.appendChild(updatedSpan);
     }
-    
+
     titleSection.appendChild(title);
     titleSection.appendChild(meta);
-    
+
     const actions = document.createElement('div');
     actions.className = 'todo-actions';
-    
+
     const toggleBtn = document.createElement('button');
     toggleBtn.className = 'icon-btn';
     toggleBtn.textContent = todo.completed ? '↩️' : '✅';
     toggleBtn.title = todo.completed ? 'Mark as incomplete' : 'Mark as complete';
     toggleBtn.onclick = () => toggleTodo(todo.id);
-    
+
     const editBtn = document.createElement('button');
     editBtn.className = 'icon-btn';
     editBtn.textContent = '✏️';
     editBtn.title = 'Edit';
     editBtn.onclick = () => openEditModal(todo.id);
-    
+
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'icon-btn';
     deleteBtn.textContent = '🗑️';
     deleteBtn.title = 'Delete';
     deleteBtn.onclick = () => deleteTodo(todo.id);
-    
+
     actions.appendChild(toggleBtn);
     actions.appendChild(editBtn);
     actions.appendChild(deleteBtn);
-    
+
     header.appendChild(titleSection);
     header.appendChild(actions);
-    
+
     const description = document.createElement('div');
     description.className = 'todo-description';
     description.textContent = todo.description; // XSS Prevention: using textContent
-    
+
     div.appendChild(header);
     div.appendChild(description);
-    
+
     // Add integrity warning if failed
     if (!todo.integrityValid) {
       const warning = document.createElement('div');
       warning.className = 'integrity-warning';
-      
+
       const icon = document.createElement('span');
       icon.textContent = '⚠️';
-      
+
       const text = document.createElement('span');
       text.textContent = 'Integrity check failed - data may have been tampered with';
-      
+
       warning.appendChild(icon);
       warning.appendChild(text);
       div.appendChild(warning);
     }
-    
+
     todoList.appendChild(div);
   });
 }
@@ -575,13 +584,13 @@ function showAuthPage() {
 function showTodoApp() {
   document.getElementById('authContainer').style.display = 'none';
   document.getElementById('todoContainer').style.display = 'block';
-  
+
   // Update user info using textContent for XSS prevention
   const userName = document.getElementById('userName');
   userName.textContent = currentUser.name;
-  
+
   const userAvatar = document.getElementById('userAvatar');
-  if (currentUser.picture) {
+  if (userAvatar && currentUser.picture) {
     userAvatar.src = currentUser.picture;
     userAvatar.alt = currentUser.name;
     userAvatar.style.display = 'block';
@@ -611,20 +620,20 @@ function showLoginForm(e) {
  */
 function showToast(message, type = 'info') {
   const container = document.getElementById('toastContainer');
-  
+
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
-  
+
   const icon = document.createElement('span');
   icon.textContent = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
-  
+
   const text = document.createElement('span');
   text.textContent = message; // XSS Prevention: using textContent
-  
+
   toast.appendChild(icon);
   toast.appendChild(text);
   container.appendChild(toast);
-  
+
   // Remove after 3 seconds
   setTimeout(() => {
     toast.style.animation = 'slideIn 0.3s ease reverse';
