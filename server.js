@@ -19,6 +19,7 @@ const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const mongoSanitize = require('express-mongo-sanitize');
 const path = require('path');
 const connectDB = require('./config/database');
 const logger = require('./utils/logger');
@@ -58,6 +59,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Cookie Parser Middleware
 app.use(cookieParser(process.env.COOKIE_SECRET || 'default-cookie-secret'));
+
+// Security Middleware - NoSQL Injection Protection
+app.use(mongoSanitize());
 
 // Request Logging Middleware
 app.use((req, res, next) => {

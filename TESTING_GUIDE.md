@@ -335,6 +335,29 @@ Try creating todos:
 - Title > 100 chars ❌ Should reject
 - Empty description ❌ Should reject
 - Description > 1000 chars ❌ Should reject
+  
+  #### **Test 9d: NoSQL Injection Prevention**
+  
+  Try to bypass authentication using a common NoSQL injection payload:
+  
+  **Steps:**
+  1. Open Postman or use curl
+  2. Send a POST request to `/api/auth/login`
+  3. Body (JSON):
+     ```json
+     {
+       "email": {"$gt": ""},
+       "password": "randompassword"
+     }
+     ```
+  
+  **Expected Result:**
+  - The server should validly reject this request (400 Bad Request or 401 Unauthorized)
+  - The `$` operator should be stripped or the request blocked
+  - **Crucially**: It should NOT log you in as the first user in the database
+  
+  ✅ **PASS**: Login failed, no crash
+  ❌ **FAIL**: Login successful or server crash
 
 ---
 
